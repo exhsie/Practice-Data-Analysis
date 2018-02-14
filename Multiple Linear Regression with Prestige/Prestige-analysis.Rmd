@@ -1,0 +1,183 @@
+---
+title: "Multiple linear regression analysis with Prestige"
+output: rmarkdown::github_document
+---
+
+```{r setup, include = FALSE}
+knitr::opts_chunk$set(echo = FALSE)
+```
+
+This analysis follows the tutorial by [Felipe Rego](https://rpubs.com/FelipeRego/MultipleLinearRegressionInRFirstSteps) on RPubs by using the Prestige dataset.
+
+We are running a multiple linear regression to predict average income in 1971, Canada, from the average no. of years of education, the percentage of women in an occupation and the prestige of the occupation as indicated by a social survey conducted in the mid-1960s.
+
+```{r load libraries, message = FALSE}
+library("car")
+library("corrplot")
+```
+
+```{r explore data, check for NA & subset, include = FALSE}
+head(Prestige)
+str(Prestige)
+summary(Prestige)
+sapply(Prestige,function(x) sum(is.na(x)))
+which(is.na(Prestige), arr.ind = TRUE)
+newdata = Prestige[,(1:4)]
+```
+
+```{r generate descriptive statistics}
+Des.stats <- function(x) c(Mean=mean(x), SD=sd(x), N=length(x))
+as.data.frame(t(round(sapply(newdata, Des.stats),3)))
+```
+
+```{r scatterplot to view the relationship}
+plot(newdata, pch=16, col="blue", main="Matrix Scatterplot of Income, Education, Women and Prestige")
+```
+
+From the matrix plot, there appears to be a positive curvilinear relationship between education and income, education and prestige of occupation, prestige of occupation and income and a negative curvilinear relationship between percentage of women and income. It also appears that there may be a few outliers to be considered for removal.
+
+```{r}
+## term is interpreted as the expected value of Yi when the predictor values are set to their means
+
+## also useful for standardising variables with different scales to remove undue influence due to scale
+```
+
+```{r}
+set.seed(1)
+education.c = scale(newdata$education, center=TRUE, scale=FALSE)
+prestige.c = scale(newdata$prestige, center=TRUE, scale=FALSE)
+women.c = scale(newdata$women, center=TRUE, scale=FALSE)
+```
+
+```{r}
+new.c = cbind(education.c, prestige.c, women.c)
+newdata = cbind(newdata, new.c)
+names(newdata)[5:7] = c("education.c", "prestige.c", "women.c" )
+```
+
+```{r fit model. by using the centered values, we have a meaningful intercept, include = FALSE}
+model = lm(income ~ education.c + prestige.c + women.c, data=newdata)
+summary(model)
+```
+
+Examining the model summary, multiple R^2 = 0.6432, AdjR^2 = 0.6323 so the model accounts for 63.2% of the variance in average income. 
+The variables women.c and prestige.c are significant predictive variables (p<0.001) while education.c is non-significant (p>0.05). 
+
+```{r}
+## regression assumption of multicollinearity, correlation should be<0.8
+```
+
+```{r testing for multicollinearity with correlation matrix plot}
+newdatacor = cor(newdata[1:4])
+corrplot(newdatacor, method = "number")
+```
+
+The correlation matrix shows a large correlation of 0.85 between education.c and prestige.c, suggesting that they are collinear. Hence, education.c is a candidate for removal.
+
+```{r function for plotting model residuals}
+plot1only = function(x) plot(x, pch = 16, which = 1)
+```
+
+```{r residuals plot}
+plot1only(model)
+```
+
+```{r testing for normality, include = FALSE}
+shapiro.test(residuals(model))
+```
+
+Residuals plot shows a general downward trend with a sloping loess line and an uneven distribution above and below horizontal zero, suggesting heteroscedasticity. Testing the residuals for normality with Shapiro-Wilk, W(102) = 0.765, p<0.001 is significant; this shows that the residuals are not normally distributed. 
+
+```{r remove education.c & refit model, include = FALSE}
+model2 = lm(income ~ prestige.c + women.c, data=newdata)
+summary(model2)
+```
+
+```{r new residuals plot}
+op = par(mfrow=c(1, 2))
+plot(model2, pch = 16, which = c(1,5))
+par(op)
+```
+
+However, there is no significant improvement to the model after removing the education.c variable, multiple R^2 = 0.64, AdjR^2 = 0.6327. The new residuals plot also suggests heteroscedasticity with a non-random distribution of points above and below horizontal zero. This might be due to the presence of outliers. 
+
+```{r}
+## studentized deleted residuals have a t-distribution. By comparing variables against this distribution with a Bonferroni correction of a = 0.05, we can find outliers
+```
+
+```{r function to detect outliers with SDR}
+SDRcheck = function(x, N=N, p=p){
+  sdr = abs(round(rstudent(x), 3))
+  which(sdr>abs(qt(0.05/(N*2),(N-1-p))), arr.ind = TRUE)
+}
+```
+
+```{r}
+SDRcheck(model2, N=102, p=2)
+```
+
+Studentized deleted residuals suggest physicians and general managers as outliers with abnormally large X values that influence the regression fit, as does Cook's D. We will therefore remove these two variables.
+
+```{r remove outliers}
+data.rm.outliers = newdata[-c(2,24),]
+```
+
+```{r check model, include = FALSE}
+model3 = lm(income ~ prestige.c + women.c, data=data.rm.outliers)
+summary(model3)
+```
+
+```{r}
+plot1only(model3)
+```
+
+The new model displays a better fit; multiple R^2 = 0.7222 and AdjR^2 = 0.7165, accounting for 71.7% of the variance in average income. Residuals plot still show an uneven distribution due to the non-linear nature of the data with a slightly sloping loess line.
+
+To test for a better fit while continuing with the linear procedure, we attempt a few transformations on the data by applying a logarithmic transformation on income and squaring the predictor variables.
+
+```{r}
+## transform data to remove heteroscedasticity e.g. square root variables, squaring variables, taking log of DV
+
+## Log DV to "achieve approximate symmetry and homoscedasticity of the residuals." 
+
+## "The main objective in these transformations is to achieve linear relationships with the dependent variable."
+
+## I inhibits operators so they are interpreted as arithmetic operators
+```
+
+```{r test, include = FALSE}
+model4 = lm(log(income) ~ prestige.c + I(prestige.c^2) + 
+              women.c, data=data.rm.outliers)
+summary(model4)
+```
+
+```{r}
+plot1only(model4)
+```
+
+
+```{r testtest, include = FALSE}
+model5 = lm(log(income) ~ prestige.c + women.c + 
+              I(women.c^2), data=data.rm.outliers)
+summary(model5)
+```
+
+```{r}
+plot1only(model5)
+```
+
+```{r testtesttest, include = FALSE}
+model6 = lm(log(income) ~ prestige.c + I(prestige.c^2) + 
+  women.c + I(women.c^2), data=data.rm.outliers)
+summary(model6)
+```
+
+```{r}
+plot1only(model6)
+```
+
+Model6 therefore has the best fit; multiple R^2 = 0.7706 and AdjR^2 = 0.761, accounting for 76.1% of the variance in average income. The final model is therefore:
+
+Log(income) = 8.831 + (prestige.c * 0.024020) - (prestige.c^2 * 0.000364) - (women.c * 0.005834) - (women.c^2 * 0.000082)
+
+
