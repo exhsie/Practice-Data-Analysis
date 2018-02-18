@@ -4,16 +4,17 @@ output: rmarkdown::github_document
 ---
 
 ```{r setup, include = FALSE}
-knitr::opts_chunk$set(echo = FALSE)
+knitr::opts_chunk$set(echo = FALSE, message = FALSE)
 ```
 
-This analysis follows the tutorial by [Felipe Rego](https://rpubs.com/FelipeRego/MultipleLinearRegressionInRFirstSteps) on RPubs by using the Prestige dataset.
+This analysis follows the tutorial by [Felipe Rego](https://rpubs.com/FelipeRego/MultipleLinearRegressionInRFirstSteps) on RPubs for the most part, using the Prestige dataset.
 
-We are running a multiple linear regression to predict average income in 1971, Canada, from the average no. of years of education, the percentage of women in an occupation and the prestige of the occupation as indicated by a social survey conducted in the mid-1960s.
+We are running a multiple linear regression to predict average income in 1971, Canada, from the average number of years of education, the percentage of women in an occupation and the prestige of the occupation as indicated by a social survey conducted in the mid-1960s.
 
-```{r load libraries, message = FALSE}
+```{r load libraries}
 library("car")
 library("corrplot")
+library("ggplot2")
 ```
 
 ```{r explore data, check for NA & subset, include = FALSE}
@@ -30,41 +31,71 @@ Des.stats <- function(x) c(Mean=mean(x), SD=sd(x), N=length(x))
 as.data.frame(t(round(sapply(newdata, Des.stats),3)))
 ```
 
+```{r checking distributions}
+ggplot(data=newdata, aes(newdata$income)) + 
+  geom_histogram(aes(y =..density..),
+                 col="black", 
+                 fill="blue", 
+                 alpha = .2) + 
+  geom_density(col=2) + 
+  labs(title="Histogram of Average Income ($)",
+       x = "Average Income ($)",
+       y = "Density")
+
+ggplot(data=newdata, aes(newdata$prestige)) + 
+  geom_histogram(aes(y =..density..),
+                 binwidth = 3,
+                 col="black", 
+                 fill="blue", 
+                 alpha = .2) + 
+  geom_density(col=2) + 
+  labs(title="Histogram of Prestige Scores",
+       x = "Prestige Scores",
+       y = "Density")
+
+ggplot(data=newdata, aes(newdata$education)) + 
+  geom_histogram(aes(y =..density..), 
+                 binwidth = 0.4,
+                 col="black", 
+                 fill="blue", 
+                 alpha = .2) + 
+  geom_density(col=2) + 
+  labs(title="Histogram of years of Education",
+       x = "Average number of years of Education",
+       y = "Density")
+
+ggplot(data=newdata, aes(newdata$women)) + 
+  geom_histogram(aes(y =..density..), 
+                 binwidth = 3,
+                 col="black", 
+                 fill="blue", 
+                 alpha = .2) + 
+  geom_density(col=2) + 
+  labs(title="Histogram of Percentage of Women",
+       x = "Percentage of Women",
+       y = "Density")
+```
+
+It appears that income and prestige have a right skewed distribution. A logarithmic transformation may be suitable to correct skewness.
+
 ```{r scatterplot to view the relationship}
 plot(newdata, pch=16, col="blue", main="Matrix Scatterplot of Income, Education, Women and Prestige")
 ```
 
 From the matrix plot, there appears to be a positive curvilinear relationship between education and income, education and prestige of occupation, prestige of occupation and income and a negative curvilinear relationship between percentage of women and income. It also appears that there may be a few outliers to be considered for removal.
 
-```{r}
-## term is interpreted as the expected value of Yi when the predictor values are set to their means
-
-## also useful for standardising variables with different scales to remove undue influence due to scale
-```
-
-```{r}
-set.seed(1)
-education.c = scale(newdata$education, center=TRUE, scale=FALSE)
-prestige.c = scale(newdata$prestige, center=TRUE, scale=FALSE)
-women.c = scale(newdata$women, center=TRUE, scale=FALSE)
-```
-
-```{r}
-new.c = cbind(education.c, prestige.c, women.c)
-newdata = cbind(newdata, new.c)
-names(newdata)[5:7] = c("education.c", "prestige.c", "women.c" )
-```
-
-```{r fit model. by using the centered values, we have a meaningful intercept, include = FALSE}
-model = lm(income ~ education.c + prestige.c + women.c, data=newdata)
+```{r fit model, include = FALSE}
+model = lm(income ~ education + prestige + women, data=newdata)
 summary(model)
+Anova(model)
 ```
 
-Examining the model summary, multiple R^2 = 0.6432, AdjR^2 = 0.6323 so the model accounts for 63.2% of the variance in average income. 
-The variables women.c and prestige.c are significant predictive variables (p<0.001) while education.c is non-significant (p>0.05). 
+Examining the model summary, multiple R^2 = 0.6432, AdjR^2 = 0.6323 so the model accounts for 63.2% of the variance in average income. Similarly, the Anova table shows a significant improvement in sum of squares with the prestige and women variables (p<0.001) but not for education (p>0.05).
 
 ```{r}
 ## regression assumption of multicollinearity, correlation should be<0.8
+
+## test for vif which should be <5
 ```
 
 ```{r testing for multicollinearity with correlation matrix plot}
@@ -72,7 +103,11 @@ newdatacor = cor(newdata[1:4])
 corrplot(newdatacor, method = "number")
 ```
 
-The correlation matrix shows a large correlation of 0.85 between education.c and prestige.c, suggesting that they are collinear. Hence, education.c is a candidate for removal.
+```{r testing with vif}
+vif(model)
+```
+
+As shown by the correlation matrix, education and prestige are highly correlated (r = 0.85). However, vif<5 for all variables which suggests that multicollinearity is not an issue although prestige has a vif value of 4.03 and education has a vif value of 3.99 which suggests moderate correlation. Hence, we will retain all variables.
 
 ```{r function for plotting model residuals}
 plot1only = function(x) plot(x, pch = 16, which = 1)
@@ -86,20 +121,7 @@ plot1only(model)
 shapiro.test(residuals(model))
 ```
 
-Residuals plot shows a general downward trend with a sloping loess line and an uneven distribution above and below horizontal zero, suggesting heteroscedasticity. Testing the residuals for normality with Shapiro-Wilk, W(102) = 0.765, p<0.001 is significant; this shows that the residuals are not normally distributed. 
-
-```{r remove education.c & refit model, include = FALSE}
-model2 = lm(income ~ prestige.c + women.c, data=newdata)
-summary(model2)
-```
-
-```{r new residuals plot}
-op = par(mfrow=c(1, 2))
-plot(model2, pch = 16, which = c(1,5))
-par(op)
-```
-
-However, there is no significant improvement to the model after removing the education.c variable, multiple R^2 = 0.64, AdjR^2 = 0.6327. The new residuals plot also suggests heteroscedasticity with a non-random distribution of points above and below horizontal zero. This might be due to the presence of outliers. 
+Residuals plot shows a general downward trend with a sloping loess line and an uneven distribution above and below horizontal zero, suggesting heteroscedasticity. Testing the residuals for normality with Shapiro-Wilk confirms that the residuals are not normally distributed, W(102) = 0.765, p<0.001 and that a non-linear procedure might be more suitable.
 
 ```{r}
 ## studentized deleted residuals have a t-distribution. By comparing variables against this distribution with a Bonferroni correction of a = 0.05, we can find outliers
@@ -113,71 +135,76 @@ SDRcheck = function(x, N=N, p=p){
 ```
 
 ```{r}
-SDRcheck(model2, N=102, p=2)
+SDRcheck(model, N=102, p=3)
 ```
 
-Studentized deleted residuals suggest physicians and general managers as outliers with abnormally large X values that influence the regression fit, as does Cook's D. We will therefore remove these two variables.
+Studentized deleted residuals suggests physicians and general managers as outliers with unusual Y values.
+
+```{r}
+cooksd.all = cooks.distance(model)
+which(cooksd.all>(3*mean(cooksd.all)))
+```
+
+While Cook's D suggests an additional 3 cases of lawyers, ministers and osteopaths.chiropractors as outliers with unusual x and y values.
+
+```{r}
+newdata[c("physicians","general.managers","lawyers","ministers","osteopaths.chiropractors"),]
+```
+
+```{r average of all columns}
+sapply(newdata, mean)
+```
+
+The incomes for physicians, general managers, lawyers and osteopath/chiropractors are clearly much higher than the average of $6797.90; whereas the percentage of women in these occupations is much lower than the average of 29.0% in this dataset. We will therefore remove these 5 cases where women are underrepresented in high income occupations (excepting ministers who draw an average income).
 
 ```{r remove outliers}
-data.rm.outliers = newdata[-c(2,24),]
+data.rm.outliers = newdata[-c(2,17,20,24,26),]
 ```
 
 ```{r check model, include = FALSE}
-model3 = lm(income ~ prestige.c + women.c, data=data.rm.outliers)
+model2 = lm(income ~ prestige + women + education, data=data.rm.outliers)
+summary(model2)
+Anova(model2)
+```
+
+```{r}
+plot1only(model2)
+```
+
+Model 2 displays a better fit; multiple R^2 = 0.8072 and AdjR^2 = 0.8009, accounting for 80.1% of the variance in average income. The Anova table shows a significant improvement in sum of squares for all three variables (p<0.05). However, due to the non-linear nature of the data, the residuals plot still shows an uneven distribution  with a slightly sloping loess line.
+
+To test for a better fit while continuing with the linear procedure, we will apply a logarithmic transformation to income and prestige.
+
+```{r}
+## transform data to remove heteroscedasticity e.g. square root variables, squaring variables, taking log of DV
+```
+
+```{r test, include = FALSE}
+model3 = lm(log(income) ~ prestige + women + education, 
+            data = data.rm.outliers)
 summary(model3)
+Anova(model3)
 ```
 
 ```{r}
 plot1only(model3)
 ```
 
-The new model displays a better fit; multiple R^2 = 0.7222 and AdjR^2 = 0.7165, accounting for 71.7% of the variance in average income. Residuals plot still show an uneven distribution due to the non-linear nature of the data with a slightly sloping loess line.
-
-To test for a better fit while continuing with the linear procedure, we attempt a few transformations on the data by applying a logarithmic transformation on income and squaring the predictor variables.
-
-```{r}
-## transform data to remove heteroscedasticity e.g. square root variables, squaring variables, taking log of DV
-
-## Log DV to "achieve approximate symmetry and homoscedasticity of the residuals." 
-
-## "The main objective in these transformations is to achieve linear relationships with the dependent variable."
-
-## I inhibits operators so they are interpreted as arithmetic operators
-```
-
-```{r test, include = FALSE}
-model4 = lm(log(income) ~ prestige.c + I(prestige.c^2) + 
-              women.c, data=data.rm.outliers)
+```{r testtest, include = FALSE}
+model4 = lm(log(income) ~ log(prestige) + women + education, 
+            data = data.rm.outliers)
 summary(model4)
+Anova(model4)
 ```
 
 ```{r}
 plot1only(model4)
 ```
 
+However, Models 3 and 4 have reduced AdjR^2 values of 0.7359 and 0.7793 respectively without achieving a more normally distributed residuals plot. Model 2 therefore has the best fit and the final model is:
 
-```{r testtest, include = FALSE}
-model5 = lm(log(income) ~ prestige.c + women.c + 
-              I(women.c^2), data=data.rm.outliers)
-summary(model5)
-```
+income = 686.883 + (prestige * 97.753) - (women * 46.172) + (education * 234.170)
 
-```{r}
-plot1only(model5)
-```
-
-```{r testtesttest, include = FALSE}
-model6 = lm(log(income) ~ prestige.c + I(prestige.c^2) + 
-  women.c + I(women.c^2), data=data.rm.outliers)
-summary(model6)
-```
-
-```{r}
-plot1only(model6)
-```
-
-Model6 therefore has the best fit; multiple R^2 = 0.7706 and AdjR^2 = 0.761, accounting for 76.1% of the variance in average income. The final model is therefore:
-
-Log(income) = 8.831 + (prestige.c * 0.024020) - (prestige.c^2 * 0.000364) - (women.c * 0.005834) - (women.c^2 * 0.000082)
-
-
+For each increase in prestige of the occupation, income increases by $97.75.
+For each increase in percentage of women in the occupation, income decreases by $46.17.
+For each increase of one year of education, income increases by $234.17.
